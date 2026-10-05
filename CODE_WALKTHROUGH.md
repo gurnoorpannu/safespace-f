@@ -442,7 +442,10 @@ stream in. `AnalysisProgress.tsx` turns them into a progress bar, shown under th
 and, with the list of steps, in the results area. Each step owns a slice of the bar (upload
 0–15 %, body signals –30 %, answers –38 %, voice –80 %, combining –84 %, explanations –97 %);
 upload progress is exact, and within a server stage the bar eases toward the end of that slice
-but only moves past it when the server reports the next stage. On a 422 or 413 the page shows
+but only moves past it when the server reports the next stage. The page also adds a deliberate 5-second
+wait (`EXTRA_WAIT_MS` in `page.tsx`): each of the six steps stays on screen 0.83 s longer than it
+really took, so results appear 5 s after the server returns them. This is a presentation choice;
+the models themselves finish in well under a second. Errors are still shown immediately. On a 422 or 413 the page shows
 the API's `message`.
 `Client/app/check/results.tsx` renders the fused and per-model probabilities, the fusion shares,
 SHAP directions, questionnaire statements and voice attention.

@@ -7,7 +7,7 @@ import { gsap } from "gsap"
 import Link from "next/link"
 import { Mic, Square, Upload, FileCheck2, AlertCircle, Check, Watch, AudioLines, X, ArrowRight } from "lucide-react"
 import Results from "./results"
-import { analyzeWithProgress, ApiError, type AnalysisProgress } from "./analysis"
+import { analyzeWithProgress, ApiError, pacedProgress, type AnalysisProgress } from "./analysis"
 import { CompactProgress, useProgressView } from "./AnalysisProgress"
 
 const DASS21_QUESTIONS = [
@@ -28,6 +28,10 @@ const SCALE = [
 ]
 
 const PHYSIO_EXTENSIONS = [".csv"]
+// Deliberate extra wait before results appear (the models themselves take well under a second).
+// It is spread over the six progress steps so each real step stays visible a little longer.
+const EXTRA_WAIT_MS = 5000
+const PROGRESS_STEPS = 6
 // Set NEXT_PUBLIC_API_URL (e.g. in Client/.env.local) when the backend is not on localhost:8000.
 const API_URL = `${(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "")}/predict/stream`
 
@@ -75,6 +79,7 @@ export default function CheckPage() {
   const [progress, setProgress] = useState<AnalysisProgress | null>(null)
   const progressView = useProgressView(progress)
   const analysisAbortRef = useRef<AbortController | null>(null)
+  const pacingRef = useRef<ReturnType<typeof pacedProgress> | null>(null)
   const [audioURL, setAudioURL] = useState<string | null>(null)
   const [recordingTime, setRecordingTime] = useState(0)
   const [micError, setMicError] = useState<string | null>(null)
@@ -266,6 +271,7 @@ export default function CheckPage() {
       streamRef.current?.getTracks().forEach((track) => track.stop())
       if (audioURLRef.current) URL.revokeObjectURL(audioURLRef.current)
       analysisAbortRef.current?.abort()
+      pacingRef.current?.cancel()
     }
   }, [])
 
@@ -285,10 +291,15 @@ export default function CheckPage() {
       const controller = new AbortController()
       analysisAbortRef.current = controller
       // Validation failures carry a readable "message" explaining which input to fix (see ApiError).
-      const result = await analyzeWithProgress(API_URL, formData, setProgress, controller.signal)
+      const pacing = pacedProgress(setProgress, EXTRA_WAIT_MS / PROGRESS_STEPS)
+      pacingRef.current = pacing
+      const result = await analyzeWithProgress(API_URL, formData, pacing.report, controller.signal)
+      await pacing.finished
       setStressResult(result);
       setAnalyzedAt(new Date());
     } catch (error) {
+      // Errors are shown straight away rather than after the pacing delay.
+      pacingRef.current?.cancel()
       if (error instanceof DOMException && error.name === "AbortError") return
       console.error("Stress analysis failed:", error);
       setError(

@@ -101,3 +101,36 @@ export function analyzeWithProgress(
     xhr.send(formData)
   })
 }
+
+/**
+ * Delays progress events so each step stays on screen `stepDelayMs` longer than it really took.
+ * Step k (0 = upload, 1-5 = server stages) is shown at its arrival time + k * stepDelayMs, and
+ * "done" at its arrival time + 6 * stepDelayMs, so a result appears 6 * stepDelayMs later than
+ * it otherwise would. Events keep their order; nothing is shown before the server reports it.
+ */
+export function pacedProgress(onProgress: (progress: AnalysisProgress) => void, stepDelayMs: number) {
+  const timers: ReturnType<typeof setTimeout>[] = []
+  let stagesSeen = 0
+  let lastShownAt = 0
+  let resolveFinished: () => void = () => {}
+  const finished = new Promise<void>((resolve) => {
+    resolveFinished = resolve
+  })
+
+  const report = (progress: AnalysisProgress) => {
+    if (SERVER_STAGES.includes(progress.stage)) stagesSeen += 1
+    const slots = progress.stage === "done" ? SERVER_STAGES.length + 1 : stagesSeen
+    const showAt = Math.max(performance.now() + slots * stepDelayMs, lastShownAt)
+    lastShownAt = showAt
+    timers.push(
+      setTimeout(() => {
+        onProgress(progress)
+        if (progress.stage === "done") resolveFinished()
+      }, showAt - performance.now()),
+    )
+  }
+
+  const cancel = () => timers.forEach(clearTimeout)
+
+  return { report, finished, cancel }
+}
